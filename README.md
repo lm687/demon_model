@@ -1,6 +1,8 @@
 # demon
 Demon (deme-based oncology model) is a flexible framework for modelling intra-tumour population genetics with varied spatial structures and modes of cell dispersal.
 
+This fork incorporates explicitly mutational signatures.
+
 ## Prerequisites
 
 The program is written in C++ (mostly plain C); it requires gnuplot and the Boost Property Tree C++ library.
