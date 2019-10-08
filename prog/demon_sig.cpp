@@ -39,6 +39,9 @@ int migration_edge_only; // whether migration / deme fission occurs only at the 
 int migration_rate_scales_with_K; // whether migration / deme fission rate should be divided by sqrt(K)
 float mu_driver_birth; // rate of driver mutations affecting birth rate
 float mu_driver_migration; // rate of driver mutations affecting migration rate
+float mu_s1; // s1 mutation rate
+float mu_s2; // s2 mutation rate
+float mu_s3; // s3 mutation rate
 float mu_passenger; // passenger mutation rate
 int passenger_pop_threshold; // population size at which passenger mutations stop occurring
 float normal_birth_rate; // birth rate of normal cells, relative to initial cancer cell birth rate
@@ -166,6 +169,9 @@ void read_parameters(boost::property_tree::ptree pt)
 	// mutation rates:
 	mu_driver_birth = pt.get <float> ("parameters.mutation_rates.mu_driver_birth"); // rate of driver mutations affecting birth rate
 	mu_driver_migration = pt.get <float> ("parameters.mutation_rates.mu_driver_migration"); // rate of driver mutations affecting migration rate
+	mu_s1 = pt.get <float> ("parameters.mutation_rates.mu_s1"); // rate of driver mutations affecting migration rate
+	mu_s2 = pt.get <float> ("parameters.mutation_rates.mu_s2"); // rate of driver mutations affecting migration rate
+	mu_s3 = pt.get <float> ("parameters.mutation_rates.mu_s3"); // rate of driver mutations affecting migration rate
 	mu_passenger = pt.get <float> ("parameters.mutation_rates.mu_passenger"); // passenger mutation rate
 	passenger_pop_threshold = pt.get <int> ("parameters.mutation_rates.passenger_pop_threshold"); // population size at which passenger mutations stop occurring
 
@@ -232,7 +238,7 @@ void read_parameters(boost::property_tree::ptree pt)
 	
 	max_clones_per_deme = ceil(MIN(MAX(K + 5, 1.2 * K), max_pop)); // a bit larger than K
 
-	max_driver_mu = MAX(mu_driver_migration, mu_driver_birth);
+	max_driver_mu = MAX(mu_driver_migration, mu_driver_birth); // this threw an error because it has to be only two arguments mu_s1, mu_s2, mu_s3);
 	
 	max_genotypes = MIN(400 * MAX(mu_passenger * passenger_pop_threshold, max_driver_mu * max_pop), 1e8);
 	max_genotypes = MAX(max_genotypes, 10);
@@ -278,8 +284,9 @@ float set_init_migration_rate(int K, float init_migration_rate, float A, float B
 }
 
 // initialise all variables:
-void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix_cols, int *num_empty_cols, int init_driver_birth_mutations, int init_driver_mig_mutations, 
-	int init_passengers, int *num_empty_driver_cols, int *num_driver_matrix_cols, int *next_driver_genotype_id, int *next_genotype_id, long *idum, int *num_extinct_genotypes, 
+void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix_cols, int *num_empty_cols, int init_driver_birth_mutations, 
+	int init_driver_mig_mutations, int init_passengers, int init_s1_mutations, int init_s2_mutations, int init_s3_mutations,
+	int *num_empty_driver_cols, int *num_driver_matrix_cols, int *next_driver_genotype_id, int *next_genotype_id, long *idum, int *num_extinct_genotypes, 
 	int *num_empty_demes, int *num_extinct_driver_genotypes)
 {
 	int i, j, x, y;
@@ -325,9 +332,12 @@ void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix
 	genotype_ints[NUM_MIGRATION_MUTATIONS][0] = init_driver_mig_mutations; // number of drivers
 	genotype_ints[IMMORTAL][0] = 1; // don't overwrite this genotype
 	genotype_ints[NUM_PASSENGER_MUTATIONS][0] = init_passengers; // number of passengers
+	genotype_ints[NUM_S1_MUTATIONS][0] = 0;// init_s1_mutations; // number of s1 mutations [Tue1001]
+	genotype_ints[NUM_S2_MUTATIONS][0] = 0; //init_s2_mutations; // number of s2 mutations [Tue1001]
+	genotype_ints[NUM_S3_MUTATIONS][0] = 0; //init_s3_mutations; // number of s3 mutations [Tue1001]
 	*next_genotype_id = 1;
 	// set genotype birth and miration rates:
-	genotype_floats[BIRTH_RATE][0] = set_birth_rate(init_driver_birth_mutations, init_passengers, 1.0, idum);
+	genotype_floats[BIRTH_RATE][0] = set_birth_rate(init_driver_birth_mutations, init_passengers, init_s1_mutations, init_s2_mutations, init_s3_mutations, 1.0, idum);
 	genotype_floats[MIGRATION_RATE][0] = set_migration_rate(init_driver_mig_mutations, init_migration_rate, idum);
 	genotype_floats[ORIGIN_TIME][0] = 0; // generation at which genotype originated
 
@@ -340,6 +350,9 @@ void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix
 	driver_genotype_ints[NUM_MIGRATION_MUTATIONS][0] = init_driver_mig_mutations; // number of drivers
 	driver_genotype_ints[IMMORTAL][0] = 1; // don't overwrite this genotype
 	driver_genotype_ints[NUM_PASSENGER_MUTATIONS][0] = init_passengers; // number of passengers
+	driver_genotype_ints[NUM_S1_MUTATIONS][0] = init_s1_mutations; // number of s1 mutations [Tue1001] which are drivers
+	driver_genotype_ints[NUM_S2_MUTATIONS][0] = init_s2_mutations; // number of s2 mutations [Tue1001] which are drivers
+	driver_genotype_ints[NUM_S3_MUTATIONS][0] = init_s3_mutations; // number of s3 mutations [Tue1001] which are drivers
 	*next_driver_genotype_id = 1;
 	// set driver genotype birth and miration rates:
 	driver_genotype_floats[BIRTH_RATE][0] = genotype_floats[BIRTH_RATE][0];
@@ -423,7 +436,8 @@ void run_sim(char *input_and_output_path, char *config_file_with_path)
 	int next_genotype_id, next_driver_genotype_id; // unique ID to assign to next genotype
 	int num_empty_cols, num_empty_driver_cols; // number of columns in distance matrix that can be replaced (because the corresponding genotype has gone extinct)
 	int num_extinct_genotypes, num_extinct_driver_genotypes; // number of genotypes that kept in the matrix and are extinct
-	int init_driver_birth_mutations = 0, init_driver_mig_mutations = 0, init_passengers = 0; // initial number of drivers, migration 
+	int init_driver_birth_mutations = 0, init_driver_mig_mutations = 0, init_passengers = 0; // initial number of drivers, migration
+	int init_s1_mutations = 0, init_s2_mutations = 0, init_s3_mutations = 0; // initial number of mutations due to each of the three processes
 	double gens_elapsed, gens_added; // counting time in cell generations
 	double gens_timer_slow, gens_timer_grids, gens_timer_output; // timers for scheduling periodic tasks (e.g. writing to files)
 	long idum; // seed of random number generator
@@ -439,7 +453,7 @@ void run_sim(char *input_and_output_path, char *config_file_with_path)
 	int parent_deme_num, chosen_deme, num_clones_in_deme;
 	int max_layer_needed;
 	int parent_geno_num, daughter_geno_num, parent_driver_geno_num, daughter_driver_geno_num;
-	int new_birth_mutations[] = {0,0}, new_mig_mutations[] = {0,0}, new_passengers[] = {0,0};
+	int new_birth_mutations[] = {0,0}, new_mig_mutations[] = {0,0}, new_passengers[] = {0,0}, new_s1[] = {0,0}, new_s2[] = {0,0}, new_s3[] = {0,0}; 
 	int new_mutations[2];
 	int event_counter[7];
 	int driver_counts[MAX_DRIVERS_TO_COUNT + 1];
@@ -471,7 +485,7 @@ void run_sim(char *input_and_output_path, char *config_file_with_path)
 
 		/// initialise:
 		initialise(&num_cells, &num_clones, &num_demes, &num_matrix_cols, &num_empty_cols, init_driver_birth_mutations, 
-			init_driver_mig_mutations, init_passengers, &num_empty_driver_cols, &num_driver_matrix_cols, &next_driver_genotype_id, 
+			init_driver_mig_mutations, init_passengers, init_s1_mutations, init_s2_mutations, init_s3_mutations, &num_empty_driver_cols, &num_driver_matrix_cols, &next_driver_genotype_id, 
 			&next_genotype_id, &idum, &num_extinct_genotypes, &num_empty_demes, &num_extinct_driver_genotypes);
 
 		gens_timer_slow = 0;
@@ -511,6 +525,7 @@ void run_sim(char *input_and_output_path, char *config_file_with_path)
 			if(gens_timer_slow >= 10 || num_cells >= threshold_pop || iterations == 0) {
 				if(gens_timer_slow >= 10) {
 					print_output = 2;
+					// print_output = 0;
 					for(i=0; i<7; i++) total_events[i] += event_counter[i];
 				}
 				else print_output = 0;
@@ -608,7 +623,9 @@ void run_sim(char *input_and_output_path, char *config_file_with_path)
 				// cell division (and attempted migration or deme fission if appropriate migration_type):
 				if(event_type == BIRTH_EVENT) {
 					// cell division:
-					cell_division(event_counter, &num_cells, parent_deme_num, new_passengers, new_mig_mutations, new_birth_mutations, new_mutations, &idum, chosen_clone, 
+					cell_division(event_counter, &num_cells, parent_deme_num, new_passengers, new_mig_mutations, new_birth_mutations,
+						new_s1, new_s2, new_s3,
+						new_mutations, &idum, chosen_clone, 
 						parent_geno_num, daughter_clone_nums, &num_empty_cols, &num_matrix_cols, empty_cols, &num_clones, parent_driver_geno_num, &num_empty_driver_cols, 
 						&num_driver_matrix_cols, empty_driver_cols, &next_driver_genotype_id, num_demes, &next_genotype_id, &num_extinct_genotypes, 
 						&num_empty_demes, &num_extinct_driver_genotypes, gens_elapsed);
@@ -871,6 +888,7 @@ int choose_event_for_deme(int chosen_deme, float *buff_array, long *idum)
 
 // division of a cancer cell:
 void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int *new_passengers, int *new_mig_mutations, int *new_birth_mutations, 
+	int *new_s1, int *new_s2, int *new_s3, 
 	int *new_mutations, long *idum, int parent_clone, int parent_geno_num, int *daughter_clone_nums, int *num_empty_cols, int *num_matrix_cols, int *empty_cols, 
 	int *num_clones, int parent_driver_geno_num, int *num_empty_driver_cols, int *num_driver_matrix_cols, int *empty_driver_cols, int *next_driver_genotype_id, 
 	int num_demes, int *next_genotype_id, int *num_extinct_genotypes, int *num_empty_demes, int *num_extinct_driver_genotypes, float gens_elapsed)
@@ -896,7 +914,7 @@ void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int 
 	increment_or_decrement_deme(1, parent_deme_num, *num_cells, num_demes, num_empty_demes);
 
 	// choose numbers of mutations of each type:
-	choose_number_mutations(new_passengers, new_mig_mutations, new_birth_mutations, new_mutations, idum);
+	choose_number_mutations(new_passengers, new_mig_mutations, new_birth_mutations, new_s1, new_s2, new_s3, new_mutations, idum, &parent_clone);
 
 	// if no new mutations then simply increment parent clone, genotype, and driver genotype populations:
 	if(!(new_mutations[0]) && !(new_mutations[1])) {
@@ -920,7 +938,7 @@ void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int 
 		for(index = start_index; index <= end_index; index++) { // loop over the mutated daughter cell(s)
 			event_counter[MUTATION_EVENT]++;
 
-			new_birth_rate = set_birth_rate(new_birth_mutations[index], new_passengers[index], genotype_floats[BIRTH_RATE][parent_geno_num], idum);
+			new_birth_rate = set_birth_rate(new_birth_mutations[index], new_passengers[index], new_s1[index], new_s2[index], new_s3[index], genotype_floats[BIRTH_RATE][parent_geno_num], idum);
 			new_migration_rate = set_migration_rate(new_mig_mutations[index], genotype_floats[MIGRATION_RATE][parent_geno_num], idum);
 			
 			// if the daughter has at least one driver mutation then create a new driver genotype and add a column to the driver distance matrix:
@@ -928,7 +946,8 @@ void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int 
 				daughter_driver_geno_num = select_genotype_index(num_empty_driver_cols, num_driver_matrix_cols, empty_driver_cols);
 				daughter_driver_id = *next_driver_genotype_id;
 				create_genotype(driver_genotype_ints, driver_genotype_floats, num_driver_matrix_cols, daughter_driver_geno_num, parent_driver_geno_num, 
-					next_driver_genotype_id, daughter_driver_id, new_birth_rate, new_migration_rate, new_passengers[index], new_birth_mutations[index], new_mig_mutations[index], gens_elapsed);
+					next_driver_genotype_id, daughter_driver_id, new_birth_rate, new_migration_rate, new_passengers[index], new_birth_mutations[index], new_mig_mutations[index],
+					new_s1[index], new_s2[index], new_s3[index], gens_elapsed);
 				if(matrix_max > 0) create_column(driver_matrix, *num_driver_matrix_cols, parent_driver_geno_num, daughter_driver_geno_num, new_birth_mutations[index] + new_mig_mutations[index]);
 			}
 			else {
@@ -942,7 +961,7 @@ void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int 
 			if(record_matrix) create_column(matrix, *num_matrix_cols, parent_geno_num, daughter_geno_num, new_mutations[index]);
 			// create a new genotype containing only the daughter cell:
 			create_genotype(genotype_ints, genotype_floats, num_matrix_cols, daughter_geno_num, parent_geno_num, next_genotype_id, daughter_driver_id, new_birth_rate, new_migration_rate, 
-				new_passengers[index], new_birth_mutations[index], new_mig_mutations[index], gens_elapsed);
+				new_passengers[index], new_birth_mutations[index], new_mig_mutations[index], new_s1[index], new_s2[index], new_s3[index], gens_elapsed);
 
 			// create a clone containing only the daughter cell:
 			create_clone(daughter_geno_num, num_clones, parent_deme_num, daughter_driver_geno_num, num_demes, 1);
@@ -1115,15 +1134,29 @@ void deme_fission(int *event_counter, int origin_deme_num, long *idum, int *num_
 ///// genotype or driver genotype:
 
 // choose numbers of mutations of each type (passenger, birth rate, migration rate):
-void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *new_birth_mutations, int *new_mutations, long *idum)
+void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *new_birth_mutations, int *new_s1,  int *new_s2, int *new_s3, int *new_mutations, long *idum,
+	int *parent_clone)
 {
 	int i;
 
 	for(i=0; i<2; i++) { // loop over both daughter cells
 		new_birth_mutations[i] = poisson(idum, mu_driver_birth); // driver mutations
 		new_passengers[i] = poisson(idum, mu_passenger); // passenger mutations
-		new_mig_mutations[i] = poisson(idum, mu_driver_migration); // migration rate mutations
-		new_mutations[i] = new_birth_mutations[i] + new_passengers[i] + new_mig_mutations[i];
+		new_s1[i] = poisson(idum, mu_s1); // s1 mutations
+		new_s2[i] = poisson(idum, mu_s2); // s2 mutations
+
+		// printf("(debugging) We are in function choose_number_mutations\t\tnew_birth_mutations=%d\tnew_passengers=%d\tnew_s1=%d\tnew_s2=%d\tnew_s3=%d\n", new_birth_mutations[i], new_passengers[i], new_s1[i], new_s2[i], new_s3[i]);  // mine
+		// make signatures from 3 only start at a given moment
+		//if(parent_clone == 'something!')
+		new_s3[i] = poisson(idum, mu_s3); // s3 mutations
+		if(*parent_clone == 5){
+			// printf("(debugging) The parent clone is %d\n", *parent_clone);
+			new_mig_mutations[i] = poisson(idum, mu_driver_migration); // migration rate mutations
+		}
+		else{
+			new_mig_mutations[i] = 0;
+		}
+		new_mutations[i] = new_birth_mutations[i] + new_passengers[i] + new_mig_mutations[i] + new_s1[i] + new_s2[i] + new_s3[i];
 	}
 }
 
@@ -1146,7 +1179,7 @@ int select_genotype_index(int *num_empty_cols, int *num_matrix_cols, int *empty_
 
 // create a new genotype or driver genotype:
 void create_genotype(int **geno_or_driver_ints, float **geno_or_driver_floats, int *num_matrix_cols, int daughter_geno_num, int parent_geno_num, int *next_genotype_id, int daughter_driver_id, 
-	float new_birth_rate, float new_migration_rate, int new_passengers, int new_birth_mutations, int new_mig_mutations, float gens_elapsed)
+	float new_birth_rate, float new_migration_rate, int new_passengers, int new_birth_mutations, int new_mig_mutations, int new_s1, int new_s2, int new_s3, float gens_elapsed)
 {
 	// create new genotype:
 	geno_or_driver_ints[POPULATION][daughter_geno_num] = 1; // initialise population
@@ -1155,7 +1188,12 @@ void create_genotype(int **geno_or_driver_ints, float **geno_or_driver_floats, i
 	geno_or_driver_ints[NUM_PASSENGER_MUTATIONS][daughter_geno_num] = geno_or_driver_ints[NUM_PASSENGER_MUTATIONS][parent_geno_num] + new_passengers;
 	geno_or_driver_ints[NUM_DRIVER_MUTATIONS][daughter_geno_num] = geno_or_driver_ints[NUM_DRIVER_MUTATIONS][parent_geno_num] + new_birth_mutations;
 	geno_or_driver_ints[NUM_MIGRATION_MUTATIONS][daughter_geno_num] = geno_or_driver_ints[NUM_MIGRATION_MUTATIONS][parent_geno_num] + new_mig_mutations;
+	geno_or_driver_ints[NUM_S1_MUTATIONS][daughter_geno_num] = geno_or_driver_ints[NUM_S1_MUTATIONS][parent_geno_num] + new_s1; // [Tue1001]
+	geno_or_driver_ints[NUM_S2_MUTATIONS][daughter_geno_num] = geno_or_driver_ints[NUM_S2_MUTATIONS][parent_geno_num] + new_s2; // [Tue1001]
+	geno_or_driver_ints[NUM_S3_MUTATIONS][daughter_geno_num] = geno_or_driver_ints[NUM_S3_MUTATIONS][parent_geno_num] + new_s3; // [Tue1001]
 	
+	// printf("(debugging) We are in create_genotype. New mutations for each signature:\t\t\t\t\tnew_s1=%d\tnew_s2=%d\tnew_s3=%d\n", new_s1, new_s2, new_s3);
+
 	// set birth and migration rates:
 	geno_or_driver_floats[BIRTH_RATE][daughter_geno_num] = new_birth_rate;
 	geno_or_driver_floats[MIGRATION_RATE][daughter_geno_num] = new_migration_rate;
@@ -1619,10 +1657,10 @@ void assign_memory()
 	
 	// two-dim arrays:
 	mallocArray_int(&clone_ints, NUM_CLONE_INT_PROPS, max_clones);
-	mallocArray_int(&genotype_ints, NUM_GENOTYPE_INT_PROPS, max_genotypes);
+	mallocArray_int(&genotype_ints, NUM_GENOTYPE_INT_PROPS, max_genotypes); // had to be changed: NUM_GENOTYPE_INT_PROPS from 8 to 11 (8+3)
 	mallocArray_int(&genotype_relatives, 4, max_genotypes);
 	mallocArray_float(&genotype_floats, NUM_GENOTYPE_FLOAT_PROPS, max_genotypes);
-	mallocArray_int(&driver_genotype_ints, NUM_GENOTYPE_INT_PROPS, max_driver_genotypes);
+	mallocArray_int(&driver_genotype_ints, NUM_GENOTYPE_INT_PROPS, max_driver_genotypes); // had to be changed: NUM_GENOTYPE_INT_PROPS from 8 to 11 (8+3)
 	mallocArray_float(&driver_genotype_floats, NUM_GENOTYPE_FLOAT_PROPS, max_driver_genotypes);
 	mallocArray_int(&deme_ints, NUM_DEME_INT_PROPS, max_demes);
 	mallocArray_float(&deme_floats, NUM_DEME_FLOAT_PROPS, max_demes);
@@ -1630,7 +1668,7 @@ void assign_memory()
 	mallocArray_int(&grid, dim_grid, dim_grid);
 	if(matrix_max > 0) mallocArray_int(&driver_matrix, matrix_max, matrix_max);
 	else mallocArray_int(&driver_matrix, 1, 1); // if driver matrix isn't needed then allocate it minimal memory
-	mallocArray_int(&freq_table, 2, max_distinct_allele_freqs);
+	mallocArray_int(&freq_table, 5, max_distinct_allele_freqs); // chnaged from 2 to 5
 	mallocArray_int(&clones_list_in_deme, max_demes, max_clones_per_deme);
 	mallocArray_float(&depth_diversity, 3, 12); // first dimension: 1, 2 or 3 samples; second dimension: depths 0-10 and random sampling
 	mallocArray_float(&depth_diversity_bigsample, 3, 12); // first dimension: 1, 2 or 3 samples; second dimension: depths 0-10 and random sampling
@@ -1751,53 +1789,53 @@ void open_files(char *input_and_output_path)
 	char filebuff[200];
 
 	// create or open output files:
-	sprintf(filebuff, "%sparameters.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/parameters.dat", input_and_output_path);
 	output_parameters=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output.dat", input_and_output_path);
 	output_pops=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_diversities.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_diversities.dat", input_and_output_path);
 	output_diversities=fopen(filebuff, "w+");
-	sprintf(filebuff, "%sdemes.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/demes.dat", input_and_output_path);
 	output_demes=fopen(filebuff, "w+");
-	sprintf(filebuff, "%sclones.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/clones.dat", input_and_output_path);
 	output_clones=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_genotype_counts.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_genotype_counts.dat", input_and_output_path);
 	output_genotype_counts=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_driver_genotype_counts.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_driver_genotype_counts.dat", input_and_output_path);
 	output_driver_genotype_counts=fopen(filebuff, "w+");
-	sprintf(filebuff, "%sphylo.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/phylo.dat", input_and_output_path);
 	output_phylo=fopen(filebuff, "w+");
-	sprintf(filebuff, "%sdriver_phylo.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/driver_phylo.dat", input_and_output_path);
 	output_driver_phylo=fopen(filebuff, "w+");
-	sprintf(filebuff, "%smatrix.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/matrix.dat", input_and_output_path);
 	output_matrix=fopen(filebuff, "w+");
-	sprintf(filebuff, "%sdriver_matrix.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/driver_matrix.dat", input_and_output_path);
 	output_driver_matrix=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_popgrid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_popgrid.dat", input_and_output_path);
 	output_popgrid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_passengersgrid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_passengersgrid.dat", input_and_output_path);
 	output_passengersgrid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_normalcellsgrid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_normalcellsgrid.dat", input_and_output_path);
 	output_normalcellsgrid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_deathrates_grid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_deathrates_grid.dat", input_and_output_path);
 	output_deathrates_grid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_birthratesgrid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_birthratesgrid.dat", input_and_output_path);
 	output_birthratesgrid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_migrationratesgrid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_migrationratesgrid.dat", input_and_output_path);
 	output_migrationratesgrid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_driversgrid.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_driversgrid.dat", input_and_output_path);
 	output_driversgrid=fopen(filebuff, "w+");
-	sprintf(filebuff, "%serror_log.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/error_log.dat", input_and_output_path);
 	error_log=fopen(filebuff, "w+");
-	sprintf(filebuff, "%ssample_size_log.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/sample_size_log.dat", input_and_output_path);
 	sample_size_log=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_allele_counts.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_allele_counts.dat", input_and_output_path);
 	output_allele_counts=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_driver_allele_counts.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_driver_allele_counts.dat", input_and_output_path);
 	output_driver_allele_counts=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_genotype_properties.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_genotype_properties.dat", input_and_output_path);
 	output_genotype_properties=fopen(filebuff, "w+");
-	sprintf(filebuff, "%soutput_driver_genotype_properties.dat", input_and_output_path);
+	sprintf(filebuff, "%soutput_data/output_driver_genotype_properties.dat", input_and_output_path);
 	output_driver_genotype_properties=fopen(filebuff, "w+");
 
 	// check that files were successfully opened:
@@ -1825,17 +1863,21 @@ void initiate_files(int *num_samples_list)
 	int i, j;
 
 	// write parameter values to file:
-	fprintf(output_parameters, "K\tmigration_type\tinit_migration_rate\tmigration_edge_only\tmigration_rate_scales_with_K\tmu_driver_birth\tmu_passenger\tmu_driver_migration\t");
+	fprintf(output_parameters, "K\tmigration_type\tinit_migration_rate\tmigration_edge_only\tmigration_rate_scales_with_K\tmu_driver_birth\tmu_passenger\tmu_driver_migration\tmu_s1\tmu_s2\tmu_s3\t");
 	fprintf(output_parameters, "normal_birth_rate\tbaseline_death_rate\ts_driver_birth\ts_passenger\ts_driver_migration\tmax_relative_birth_rate\tmax_relative_migration_rate\tinit_pop\tseed\tbiopsy_size_per_sample\n");
-	fprintf(output_parameters, "%d\t%d\t%e\t%d\t%d\t%e\t%e\t%e\t", K, migration_type, init_migration_rate, migration_edge_only, migration_rate_scales_with_K, 
-		mu_driver_birth, mu_passenger, mu_driver_migration);
+	fprintf(output_parameters, "%d\t%d\t%e\t%d\t%d\t%e\t%e\t%e\t%e\t%e\t%e\t", K, migration_type, init_migration_rate, migration_edge_only, migration_rate_scales_with_K, 
+		mu_driver_birth, mu_passenger, mu_driver_migration, mu_s1, mu_s2, mu_s3);
 	fprintf(output_parameters, "%f\t%f\t%f\t%f\t%f\t%f\t%f\t%d\t%d\t%d\n", normal_birth_rate, baseline_death_rate, s_driver_birth, s_passenger, s_driver_migration, max_relative_birth_rate, max_relative_migration_rate, 
 		init_pop, seed, biopsy_size_per_sample);
 	fflush(output_parameters);
 
 	// write column names to output_pops file:
+
 	fprintf(output_pops, "Generation\tNumCells\tTotalBirths\tTotalDeaths\tTotalMigrations\tPassengers\tDrivers\tVarPassengers\tVarDrivers\t");
-	fprintf(output_pops, "MeanBirthRate\tMeanMigrationRate\tVarBirthRate\tVarMigRate\tNumClones\tNumGenotypes\tNumDriverGenotypes\tNumDemes\tNumNon-EmptyDemes\tMatrixColumns\tDriverMatrixColumns\tEverGenotypes");
+	fprintf(output_pops, "S1(MeanNum)\tS2(MeanNum)\tS3(MeanNum)\tVarS1\tVarS2\tVarS3\t");
+
+
+fprintf(output_pops, "MeanBirthRate\tMeanMigrationRate\tVarBirthRate\tVarMigRate\tNumClones\tNumGenotypes\tNumDriverGenotypes\tNumDemes\tNumNon-EmptyDemes\tMatrixColumns\tDriverMatrixColumns\tEverGenotypes");
 	for(i=0; i<=MAX_DRIVERS_TO_COUNT; i++) fprintf(output_pops, "\tCellsWith%dDrivers", i);
 	fprintf(output_pops, "\n");
 
@@ -1855,7 +1897,7 @@ void initiate_files(int *num_samples_list)
 	// write column names to other output files:
 	fprintf(output_demes, "Generation\tX\tY\tPopulation\tNormalCells\tDeathRate\tDiversity\tDriverDiversity\n");
 	fprintf(output_clones, "Generation\tClone\tDeme\tGenotype\tDriverGenotype\tParent\tDriverParent\tX\tY\tNormalCells\tPopulation\tBirthRate\t");
-	fprintf(output_clones, "MigrationRate\tDeathRate\tMigrationModifier\tDriverMutations\tMigrationMutations\tPassengerMutations\n");
+	fprintf(output_clones, "MigrationRate\tDeathRate\tMigrationModifier\tDriverMutations\tMigrationMutations\tPassengerMutations\tS1Mutations\tS2Mutations\tS3Mutations\n");
 	fprintf(output_phylo, "NumCells\tNumSamples\tCellsPerSample\tSampleDepth\tGeneration\tIdentity\tParent\tPopulation\tBirthRate\tMigrationRate\tOriginTime\tDriverMutations\tMigrationMutations\tPassengerMutations\n");
 	fprintf(output_driver_phylo, "NumCells\tNumSamples\tCellsPerSample\tSampleDepth\tGeneration\tIdentity\tDriverIdentity\tParent\tPopulation\tBirthRate\tMigrationRate\tOriginTime\tDriverMutations\tMigrationMutations\tPassengerMutations\n");
 	fprintf(sample_size_log, "Generation\tNumSamples\tDepth\tTargetSampleSize\tActualSampleSize\n");
@@ -1863,7 +1905,7 @@ void initiate_files(int *num_samples_list)
 	fprintf(output_driver_allele_counts, "Generation\tSize\tFrequency\tCount\n");
 	fprintf(output_genotype_counts, "Generation\tSize\tFrequency\tCount\n");
 	fprintf(output_driver_genotype_counts, "Generation\tSize\tFrequency\tCount\n");
-	fprintf(output_genotype_properties, "Population\tParent\tIdentity\tDriverIdentity\tDriverMutations\tMigrationMutations\tImmortal\tPassengerMutations\tBirthRate\tMigrationRate\tOriginTime\tDescendants\n");
+	fprintf(output_genotype_properties, "Population\tParent\tIdentity\tDriverIdentity\tDriverMutations\tMigrationMutations\tImmortal\tPassengerMutations\tS1Mutations\tS2Mutations\tS3Mutations\tBirthRate\tMigrationRate\tOriginTime\tDescendants\n");
 	fprintf(output_driver_genotype_properties, "Population\tParent\tIdentity\tDriverIdentity\tDriverMutations\tMigrationMutations\tImmortal\tPassengerMutations\tBirthRate\tMigrationRate\tOriginTime\tDescendants\n");
 }
 
@@ -1878,7 +1920,7 @@ void main_calculations_and_output(long *idum, int num_demes, int num_matrix_cols
 	int num_freqs;
 	double sum_birth_rates, sum_death_rates, sum_migration_rates; // sums of rates of all cancer cells
 	double sum_normal_birth_rates, sum_normal_death_rates; // sums of rates of all normal cells
-	float mean_num_passengers, mean_num_drivers, var_num_passengers, var_num_drivers;
+	float mean_num_passengers, mean_num_drivers, mean_num_s1, mean_num_s2, mean_num_s3, var_num_passengers, var_num_drivers, var_num_s1, var_num_s2, var_num_s3;
 	float variance_mig_rate, variance_birth_rate, diversity, alpha_diversity, edge_diversity, driver_diversity, alpha_driver_diversity, edge_driver_diversity;
 
 	if(matrix_max > 0) rao = 1;
@@ -1888,21 +1930,26 @@ void main_calculations_and_output(long *idum, int num_demes, int num_matrix_cols
 	calculate_sums_of_rates(&sum_death_rates, &sum_birth_rates, &sum_migration_rates, &sum_normal_birth_rates, &sum_normal_death_rates,
 		num_demes, num_matrix_cols, gens_elapsed);
 
+	i = 5;
+	// printf("(debugging) We are in main_calculations_and_output. Number of mutations for each signature, i=i: %d\t%d\t%d\t%d\t%d\n", genotype_ints[NUM_DRIVER_MUTATIONS][i], genotype_ints[NUM_PASSENGER_MUTATIONS][i], genotype_ints[NUM_S1_MUTATIONS][i], genotype_ints[NUM_S2_MUTATIONS][i], genotype_ints[NUM_S3_MUTATIONS][i]);
+
 	// calculate means and variances of numbers of mutations per cell:
-	calculate_mutation_metrics(&mean_num_passengers, &mean_num_drivers, &var_num_passengers, &var_num_drivers, driver_counts, num_matrix_cols, num_cells);
+	calculate_mutation_metrics(&mean_num_passengers, &mean_num_drivers, &mean_num_s1, &mean_num_s2, &mean_num_s3, &var_num_passengers, &var_num_drivers, &var_num_s1, &var_num_s2, &var_num_s3,
+		driver_counts, num_matrix_cols, num_cells);
 
 	// calculate variance of cell birth and migration rates:
 	variance_birth_rate = calculate_variance_of_rate(num_matrix_cols, num_cells, sum_birth_rates, genotype_floats[BIRTH_RATE]);
 	variance_mig_rate = calculate_variance_of_rate(num_matrix_cols, num_cells, sum_migration_rates, genotype_floats[MIGRATION_RATE]);
+
 
 	if(component(which_parts, PHYLO_AND_POPS)) {
 		// write phylogenetic data of driver genotypes to file:
 		write_output_phylo(output_driver_phylo, num_driver_matrix_cols, gens_elapsed, driver_genotype_ints[POPULATION], driver_genotype_ints, driver_genotype_floats, 1, -1, -1, num_cells);
 
 		// write population metrics to file:
-		write_output_pops(output_pops, num_cells, event_counter, mean_num_passengers, mean_num_drivers, sum_birth_rates, sum_migration_rates, var_num_passengers, var_num_drivers, variance_birth_rate, 
-			variance_mig_rate, num_matrix_cols, num_empty_cols, num_driver_matrix_cols, num_empty_driver_cols, num_extinct_genotypes, num_extinct_driver_genotypes, num_demes, num_empty_demes, gens_elapsed, 
-			num_clones, driver_counts, next_genotype_id);
+		write_output_pops(output_pops, num_cells, event_counter, mean_num_passengers, mean_num_drivers, mean_num_s1, mean_num_s2, mean_num_s3, sum_birth_rates, sum_migration_rates,
+			var_num_passengers, var_num_drivers, var_num_s1, var_num_s2, var_num_s3, variance_birth_rate, variance_mig_rate, num_matrix_cols, num_empty_cols, num_driver_matrix_cols,
+			num_empty_driver_cols, num_extinct_genotypes, num_extinct_driver_genotypes, num_demes, num_empty_demes, gens_elapsed, num_clones, driver_counts, next_genotype_id);
 	}
 
 	if(component(which_parts, DIVERSITIES)) {
@@ -2093,7 +2140,7 @@ void print_to_screen(float gens_elapsed, int num_cells, long t1, int num_demes, 
 
 	printf("Seed = %d; K = %d\n", seed, K);
 	printf("Migration type = %d, initial rate = %e, edge only = %d\n", migration_type, init_migration_rate, migration_edge_only);
-	printf("Mut rates: %f (birth), %f (mig), %f (pass)\n", mu_driver_birth, mu_driver_migration, mu_passenger);
+	printf("Mut rates: %f (birth), %f (mig), %f (pass), %f (s1), %f (s2), %f (s3)\n", mu_driver_birth, mu_driver_migration, mu_passenger, mu_s1, mu_s2, mu_s3);
 	printf("Mut effects: %f (birth), %f (mig), %f (pass)\n", s_driver_birth, s_driver_migration, s_passenger);
 	printf("----------------------------------------------------------------\n");
 	printf("%d generations, %d iterations\n", (int)(gens_elapsed), iterations);
@@ -2124,8 +2171,9 @@ void print_to_screen(float gens_elapsed, int num_cells, long t1, int num_demes, 
 }
 
 // write overall population metrics to file:
-void write_output_pops(FILE *output_pops, int num_cells, int *event_counter, float mean_num_passengers, float mean_num_drivers, double sum_birth_rates, double sum_migration_rates, 
-	float var_num_passengers, float var_num_drivers, float variance_birth_rate, float variance_mig_rate, int num_matrix_cols, int num_empty_cols, int num_driver_matrix_cols, int num_empty_driver_cols, 
+void write_output_pops(FILE *output_pops, int num_cells, int *event_counter, float mean_num_passengers, float mean_num_drivers, float mean_num_s1, float mean_num_s2, float mean_num_s3, 
+	double sum_birth_rates, double sum_migration_rates, 
+	float var_num_passengers, float var_num_drivers, float var_num_s1, float var_num_s2, float var_num_s3, float variance_birth_rate, float variance_mig_rate, int num_matrix_cols, int num_empty_cols, int num_driver_matrix_cols, int num_empty_driver_cols, 
 	int num_extinct_genotypes, int num_extinct_driver_genotypes, int num_demes, int num_empty_demes, float gens_elapsed, int num_clones, int *driver_counts, int next_genotype_id)
 {
 	int i;
@@ -2134,8 +2182,10 @@ void write_output_pops(FILE *output_pops, int num_cells, int *event_counter, flo
 	if(migration_type < 2) mig_or_fission_count = total_events[MIGRATION_EVENT] + event_counter[MIGRATION_EVENT];
 	else mig_or_fission_count = total_events[FISSION_EVENT] + event_counter[FISSION_EVENT];
 
-	fprintf(output_pops, "%f\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t", gens_elapsed, num_cells, total_events[BIRTH_EVENT] + event_counter[BIRTH_EVENT], total_events[DEATH_EVENT] + event_counter[DEATH_EVENT], 
-		mig_or_fission_count, mean_num_passengers, mean_num_drivers, var_num_passengers, var_num_drivers);
+	// printf("(debugging) We are in write_output_pops. Mean number of mutations for each signature:\t\tmean_num_s1=%f\tmean_num_s2=%f\tmean_num_s3=%f\n", mean_num_s1, mean_num_s2, mean_num_s3);
+
+	fprintf(output_pops, "%f\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t", gens_elapsed, num_cells, total_events[BIRTH_EVENT] + event_counter[BIRTH_EVENT], total_events[DEATH_EVENT] + event_counter[DEATH_EVENT], 
+		mig_or_fission_count, mean_num_passengers, mean_num_drivers, var_num_passengers, var_num_drivers, mean_num_s1, mean_num_s2, mean_num_s3, var_num_s1, var_num_s2, var_num_s3);
 	fprintf(output_pops, "%e\t", sum_birth_rates / num_cells);
 	fprintf(output_pops, "%e\t", sum_migration_rates / num_cells);
 	fprintf(output_pops, "%e\t%e\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d", variance_birth_rate, variance_mig_rate, num_clones, num_matrix_cols - num_empty_cols - num_extinct_genotypes, 
@@ -2180,11 +2230,12 @@ void write_other_files(FILE *output_demes, FILE *output_clones, FILE *output_gen
 		geno_num = clone_ints[GENOTYPE][i];
 		driver_geno_num = clone_ints[DRIVER_GENOTYPE][i];
 		deme_num = clone_ints[DEME][i];
-		fprintf(output_clones, "%f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\t%d\t%d\n", gens_elapsed, i, deme_num, genotype_ints[IDENTITY][geno_num], 
+		fprintf(output_clones, "%f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\t%d\t%d\t%d\t%d\t%d\n", gens_elapsed, i, deme_num, genotype_ints[IDENTITY][geno_num], 
 			driver_genotype_ints[IDENTITY][driver_geno_num], genotype_ints[PARENT][geno_num], driver_genotype_ints[PARENT][driver_geno_num], 
 			deme_ints[XCOORD][deme_num], deme_ints[YCOORD][deme_num], deme_ints[NORMAL_CELLS][deme_num], clone_ints[POPULATION][i], genotype_floats[BIRTH_RATE][geno_num], 
 			genotype_floats[MIGRATION_RATE][geno_num], deme_floats[DEATH_RATE][deme_num], deme_floats[MIGRATION_MODIFIER][deme_num], genotype_ints[NUM_DRIVER_MUTATIONS][geno_num], 
-			genotype_ints[NUM_MIGRATION_MUTATIONS][geno_num], genotype_ints[NUM_PASSENGER_MUTATIONS][geno_num]);
+			genotype_ints[NUM_MIGRATION_MUTATIONS][geno_num], genotype_ints[NUM_PASSENGER_MUTATIONS][geno_num],
+			genotype_ints[NUM_S1_MUTATIONS][geno_num], genotype_ints[NUM_S2_MUTATIONS][geno_num], genotype_ints[NUM_S3_MUTATIONS][geno_num]);
 	}
 
 	// write phylogenetic data of genotypes to file:
@@ -2197,9 +2248,12 @@ void write_output_phylo(FILE* output, int num_cols, float gens_elapsed, int *pop
 {
 	int i;
 
-	for(i=0; i<num_cols; i++) if(genotype_or_driver_ints[IMMORTAL][i] == 1) fprintf(output, "%d\t%d\t%d\t%d\t%f\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%d\t%d\t%d\n", num_cells, samples, biopsy_size_per_sample, depth, gens_elapsed, 
-		genotype_or_driver_ints[IDENTITY][i], genotype_or_driver_ints[DRIVER_IDENTITY][i], genotype_or_driver_ints[PARENT][i], populations[i], genotype_or_driver_floats[BIRTH_RATE][i], genotype_or_driver_floats[MIGRATION_RATE][i], 
-		genotype_or_driver_floats[ORIGIN_TIME][i], genotype_or_driver_ints[NUM_DRIVER_MUTATIONS][i], genotype_or_driver_ints[NUM_MIGRATION_MUTATIONS][i], genotype_or_driver_ints[NUM_PASSENGER_MUTATIONS][i]);
+	for(i=0; i<num_cols; i++) if(genotype_or_driver_ints[IMMORTAL][i] == 1) fprintf(output, "%d\t%d\t%d\t%d\t%f\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%d\t%d\t%d\t%d\t%d\t%d\n",
+		num_cells, samples, biopsy_size_per_sample, depth, gens_elapsed, genotype_or_driver_ints[IDENTITY][i], genotype_or_driver_ints[DRIVER_IDENTITY][i],
+		genotype_or_driver_ints[PARENT][i], populations[i], genotype_or_driver_floats[BIRTH_RATE][i], genotype_or_driver_floats[MIGRATION_RATE][i], 
+		genotype_or_driver_floats[ORIGIN_TIME][i], genotype_or_driver_ints[NUM_DRIVER_MUTATIONS][i], genotype_or_driver_ints[NUM_MIGRATION_MUTATIONS][i],
+		genotype_or_driver_ints[NUM_PASSENGER_MUTATIONS][i],
+		genotype_or_driver_ints[NUM_S1_MUTATIONS][i], genotype_or_driver_ints[NUM_S2_MUTATIONS][i], genotype_or_driver_ints[NUM_S3_MUTATIONS][i]);
 }
 
 void write_frequency_table(FILE *filename, int **freq_table, int denominator, float gens_elapsed, int array_length)
@@ -2214,8 +2268,10 @@ void write_genotypes(FILE *output_genotype_properties, int num_matrix_cols, int 
 	int i;
 
 	for(i = 0; i < num_matrix_cols; i++) if(allele_count[i] > 0) {
-		fprintf(output_genotype_properties, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t", genotype_or_driver_ints[POPULATION][i], genotype_or_driver_ints[PARENT][i], genotype_or_driver_ints[IDENTITY][i], genotype_or_driver_ints[DRIVER_IDENTITY][i],
-			genotype_or_driver_ints[NUM_DRIVER_MUTATIONS][i], genotype_or_driver_ints[NUM_MIGRATION_MUTATIONS][i], genotype_or_driver_ints[IMMORTAL][i], genotype_or_driver_ints[NUM_PASSENGER_MUTATIONS][i]);
+		fprintf(output_genotype_properties, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t", genotype_or_driver_ints[POPULATION][i], genotype_or_driver_ints[PARENT][i],
+			genotype_or_driver_ints[IDENTITY][i], genotype_or_driver_ints[DRIVER_IDENTITY][i], genotype_or_driver_ints[NUM_DRIVER_MUTATIONS][i],
+			genotype_or_driver_ints[NUM_MIGRATION_MUTATIONS][i], genotype_or_driver_ints[IMMORTAL][i], genotype_or_driver_ints[NUM_PASSENGER_MUTATIONS][i],
+			genotype_or_driver_ints[NUM_S1_MUTATIONS][i], genotype_or_driver_ints[NUM_S2_MUTATIONS][i], genotype_or_driver_ints[NUM_S3_MUTATIONS][i]);
 		fprintf(output_genotype_properties, "%f\t%f\t%f\t", genotype_or_driver_floats[BIRTH_RATE][i], genotype_or_driver_floats[MIGRATION_RATE][i], genotype_or_driver_floats[ORIGIN_TIME][i]);
 		fprintf(output_genotype_properties, "%d\n", allele_count[i]);
 	}
@@ -2252,7 +2308,7 @@ void write_pops_grid_to_file(FILE *output_popgrid)
 void write_passengers_grid_to_file(FILE *output_passengersgrid, int num_clones, int num_demes)
 {
 	int i, j;
-	int clone_num, clone_index, deme_num, geno_num, passenger_count, deme_pop;
+	int clone_num, clone_index, deme_num, geno_num, passenger_count, s1_count, s2_count, s3_count, deme_pop;
 
 	for(i=0; i<dim_grid; i++) {
 		for(j=0; j<dim_grid; j++) {
@@ -2262,11 +2318,14 @@ void write_passengers_grid_to_file(FILE *output_passengersgrid, int num_clones, 
 			else if(deme_ints[POPULATION][deme_num] == 0) fprintf(output_passengersgrid, "NA");
 			else {
 				deme_pop = deme_ints[POPULATION][deme_num];
-				passenger_count = 0;
+				passenger_count = 0; s1_count = 0; s2_count = 0; s3_count = 0;
 				for(clone_num=0; clone_num<deme_ints[NUM_CLONES_IN_DEME][deme_num]; clone_num++) {
 					clone_index = clones_list_in_deme[deme_num][clone_num];
 					geno_num = clone_ints[GENOTYPE][clone_index];
 					passenger_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_PASSENGER_MUTATIONS][geno_num];
+					s1_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_S1_MUTATIONS][geno_num]; //[Tue1001]
+					s2_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_S2_MUTATIONS][geno_num]; //[Tue1001]
+					s3_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_S3_MUTATIONS][geno_num]; //[Tue1001]
 				}
 				fprintf(output_passengersgrid, "%f", (float)passenger_count / deme_pop);
 			}
@@ -2402,7 +2461,7 @@ void plot_drivers_grid(FILE *gp, char *preamble_drivers_text, float gens_elapsed
 
 	fprintf(gp, "set terminal png\n");
 	fprintf(gp, "set output '");
-	fprintf(gp, "%sDriverGrids/driver_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
+	fprintf(gp, "%soutput_data/DriverGrids/driver_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
 		(int)(gens_elapsed));
 	fprintf(gp, preamble_drivers_text, 0);
 
@@ -2436,7 +2495,7 @@ void plot_pops_grid(FILE *gp, char *preamble_text, float gens_elapsed, char *inp
 
 	fprintf(gp, "set terminal png\n");
 	fprintf(gp, "set output '");
-	fprintf(gp, "%sPopsGrids/pops_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
+	fprintf(gp, "%soutput_data/PopsGrids/pops_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
 		(int)(gens_elapsed));
 	fprintf(gp, preamble_text, 0);
 
@@ -2463,11 +2522,11 @@ void plot_passengers_grid(FILE *gp, char *preamble_text, float gens_elapsed, int
 {
 	int i,j;
 	float val_to_write, buff;
-	int clone_num, clone_index, deme_num, geno_num, passenger_count, deme_pop;
+	int clone_num, clone_index, deme_num, geno_num, passenger_count, deme_pop, s1_count, s2_count, s3_count;
 
 	fprintf(gp, "set terminal png\n");
 	fprintf(gp, "set output '");
-	fprintf(gp, "%sPassengersGrids/passengers_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
+	fprintf(gp, "%soutput_data/PassengersGrids/passengers_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
 		(int)(gens_elapsed));
 	fprintf(gp, preamble_text, 0);
 
@@ -2483,6 +2542,9 @@ void plot_passengers_grid(FILE *gp, char *preamble_text, float gens_elapsed, int
 					clone_index = clones_list_in_deme[deme_num][clone_num];
 					geno_num = clone_ints[GENOTYPE][clone_index];
 					passenger_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_PASSENGER_MUTATIONS][geno_num];
+					s1_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_S1_MUTATIONS][geno_num];
+					s2_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_S2_MUTATIONS][geno_num];
+					s3_count += clone_ints[POPULATION][clone_index] * genotype_ints[NUM_S3_MUTATIONS][geno_num];
 				}
 				buff = 0.5 * (float)passenger_count / deme_pop;
 				val_to_write = MIN(3.99, buff);
@@ -2505,7 +2567,7 @@ void plot_migration_grid(FILE *gp, char *preamble_text, float gens_elapsed, int 
 
 	fprintf(gp, "set terminal png\n");
 	fprintf(gp, "set output '");
-	fprintf(gp, "%sMigrationRateGrids/migration_rate_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
+	fprintf(gp, "%soutput_data/MigrationRateGrids/migration_rate_grid%s%d.png'\n", input_and_output_path, zeroes((int)(gens_elapsed), max_gens, buffer_text_short, buffer_text_long), 
 		(int)(gens_elapsed));
 	fprintf(gp, preamble_text, 0);
 
@@ -2531,7 +2593,7 @@ void plot_migration_grid(FILE *gp, char *preamble_text, float gens_elapsed, int 
 /////////////////////// set rates:
 
 // set genotype birth rate:
-float set_birth_rate(int new_birth_mutations, int new_passengers, float parent_birth_rate, long *idum)
+float set_birth_rate(int new_birth_mutations, int new_passengers, int new_s1, int new_s2, int new_s3, float parent_birth_rate, long *idum)
 {
 	float birth_rate = parent_birth_rate;
 	int i;
@@ -3257,26 +3319,53 @@ void get_biopsy_data(int rao, float *depth_array, int samples, int biopsy_size_p
 }
 
 // calculate mean and variance of numbers of mutations:
-void calculate_mutation_metrics(float *mean_num_passengers, float *mean_num_drivers, float *var_num_passengers, float *var_num_drivers, int *driver_counts, int num_matrix_cols, int num_cells)
+void calculate_mutation_metrics(float *mean_num_passengers, float *mean_num_drivers, float *mean_num_s1, float *mean_num_s2, float *mean_num_s3,
+	float *var_num_passengers, float *var_num_drivers, float *var_num_s1, float *var_num_s2, float *var_num_s3, int *driver_counts, int num_matrix_cols, int num_cells)
 {
+
 	int i;
-	int pop1, sum_pop, num_drivers;
+	int pop1, sum_pop, num_drivers, num_S1, num_S2, num_S3;
 	float diff1;
 
 	*mean_num_passengers = 0;
 	*mean_num_drivers = 0;
+	
+	/* Signatures
+	dummy, for now */
+	*mean_num_s1 = 0,*mean_num_s2 = 0, *mean_num_s3 = 0;
+	*var_num_s1 = 0, *var_num_s2 = 0, *var_num_s3 = 0;
+
+	i = 20;
+
 	for(i = 0; i <= MAX_DRIVERS_TO_COUNT; i++) driver_counts[i] = 0;
 	sum_pop = 0;
 	for(i=0; i<num_matrix_cols; i++) { // loop over all genotypes or driver genotypes
 		pop1 = genotype_ints[POPULATION][i];
 		num_drivers = genotype_ints[NUM_DRIVER_MUTATIONS][i];
+
+		num_S1 = genotype_ints[NUM_S1_MUTATIONS][i];
+		num_S2 = genotype_ints[NUM_S2_MUTATIONS][i];
+		num_S3 = genotype_ints[NUM_S3_MUTATIONS][i];
+
 		*mean_num_passengers += pop1 * genotype_ints[NUM_PASSENGER_MUTATIONS][i];
 		*mean_num_drivers += pop1 * (num_drivers + genotype_ints[NUM_MIGRATION_MUTATIONS][i]);
+		*mean_num_s1 += pop1 * (num_S1);
+		*mean_num_s2 += pop1 * (num_S2);
+		*mean_num_s3 += pop1 * (num_S3);
+
+		// printf("(debugging) We are in calculate_mutation_metrics. Number of mutations for each signature: %d\t%d\t%d\t%d\t%d\n", genotype_ints[NUM_DRIVER_MUTATIONS][i], genotype_ints[NUM_PASSENGER_MUTATIONS][i], genotype_ints[NUM_S1_MUTATIONS][i], genotype_ints[NUM_S2_MUTATIONS][i], genotype_ints[NUM_S3_MUTATIONS][i]);
+
 		sum_pop += pop1;
 		driver_counts[(int)MIN(num_drivers, MAX_DRIVERS_TO_COUNT)] += pop1;
 	}
+
+	// printf("(debugging) We are in calculate_mutation_metrics. Number of mutations for each signature: %d\t%d\t%d\t%d\t%d\n", genotype_ints[NUM_DRIVER_MUTATIONS][i], genotype_ints[NUM_PASSENGER_MUTATIONS][i], genotype_ints[NUM_S1_MUTATIONS][i], genotype_ints[NUM_S2_MUTATIONS][i], genotype_ints[NUM_S3_MUTATIONS][i]);
+
 	*mean_num_passengers /= num_cells;
 	*mean_num_drivers /= num_cells;
+	*mean_num_s1 /= num_cells;
+	*mean_num_s2 /= num_cells;
+	*mean_num_s3 /= num_cells;
 
 	// error check:
 	if(sum_pop != num_cells) {
@@ -3286,12 +3375,27 @@ void calculate_mutation_metrics(float *mean_num_passengers, float *mean_num_driv
 
 	*var_num_passengers = 0;
 	*var_num_drivers = 0;
+	*var_num_s1 = 0;
+	*var_num_s2 = 0;
+	*var_num_s3 = 0;
+	*var_num_s1 = 0;
+	*var_num_s2 = 0;
+	*var_num_s3 = 0;
+	// here
 	for(i=0; i<num_matrix_cols; i++) { // loop over all genotypes or driver genotypes
 		pop1 = genotype_ints[POPULATION][i];
 		diff1 = genotype_ints[NUM_PASSENGER_MUTATIONS][i] - *mean_num_passengers;
-		*var_num_passengers += pop1 * diff1 * diff1;
+		*var_num_passengers += pop1 * diff1 * diff1; // why twice?
 		diff1 = genotype_ints[NUM_DRIVER_MUTATIONS][i] + genotype_ints[NUM_MIGRATION_MUTATIONS][i] - *mean_num_drivers;
 		*var_num_drivers += pop1 * diff1 * diff1;
+		/* the same for the mutational signatures */
+		diff1 = genotype_ints[NUM_S1_MUTATIONS][i] - *mean_num_s1;
+		//*var_num_s1 += pop1 * diff1 * diff1;
+		*var_num_s1 = 0;
+		diff1 = genotype_ints[NUM_S2_MUTATIONS][i] - *mean_num_s2;
+		*var_num_s2 += pop1 * diff1 * diff1;
+		diff1 = genotype_ints[NUM_S3_MUTATIONS][i] - *mean_num_s3;
+		*var_num_s3 += pop1 * diff1 * diff1;
 	}
 	*var_num_passengers /= num_cells;
 	*var_num_drivers /= num_cells;
