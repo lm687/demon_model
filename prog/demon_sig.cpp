@@ -1144,18 +1144,18 @@ void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *n
 		new_passengers[i] = poisson(idum, mu_passenger); // passenger mutations
 		new_s1[i] = poisson(idum, mu_s1); // s1 mutations
 		new_s2[i] = poisson(idum, mu_s2); // s2 mutations
-
 		// printf("(debugging) We are in function choose_number_mutations\t\tnew_birth_mutations=%d\tnew_passengers=%d\tnew_s1=%d\tnew_s2=%d\tnew_s3=%d\n", new_birth_mutations[i], new_passengers[i], new_s1[i], new_s2[i], new_s3[i]);  // mine
 		// make signatures from 3 only start at a given moment
 		//if(parent_clone == 'something!')
-		new_s3[i] = poisson(idum, mu_s3); // s3 mutations
 		if(*parent_clone == 5){
-			// printf("(debugging) The parent clone is %d\n", *parent_clone);
-			new_mig_mutations[i] = poisson(idum, mu_driver_migration); // migration rate mutations
+			printf("(debugging) The parent clone is %d\n", *parent_clone);
+			printf("(debugging) Current clone %d\n", *parent_clone);
+			new_s3[i] = poisson(idum, mu_s3); // s3 mutations
 		}
 		else{
-			new_mig_mutations[i] = 0;
+			new_s3[i] = 0; // s3 mutations
 		}
+		new_mig_mutations[i] = poisson(idum, mu_driver_migration); // migration rate mutations
 		new_mutations[i] = new_birth_mutations[i] + new_passengers[i] + new_mig_mutations[i] + new_s1[i] + new_s2[i] + new_s3[i];
 	}
 }
