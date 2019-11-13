@@ -17,7 +17,7 @@ parameters
         mu_passenger 1.1
         mu_s1 0.1
         mu_s2 0.1
-        mu_s3 0.8
+        mu_s3 2.8
         mu_driver_migration 0
         passenger_pop_threshold -1
     }
@@ -37,7 +37,7 @@ parameters
         matrix_max -1
         max_pop 1000000
         max_time 86400
-        max_generations 200
+        max_generations 7
         seed 101
         write_grid 0
         write_clones_file 1

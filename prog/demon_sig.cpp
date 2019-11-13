@@ -17,6 +17,7 @@ int **genotype_relatives;
 int **freq_table;
 float **depth_diversity;
 float **depth_diversity_bigsample;
+bool verbatim = FALSE;
 
 // one-dim arrays:
 double *bintree_deme_doubles;
@@ -312,11 +313,12 @@ void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix
 	*num_cells = init_pop;
 
 	init_diameter = (int)ceil(sqrt(*num_demes)); // initial diameter (measured in demes)
-	printf("dim_grid %d, max_demes %d, num_demes = %d, init_diameter = %d\n", dim_grid, max_demes, *num_demes, init_diameter);
-	printf("clone bintrees ");
-	if(!use_clone_bintrees) printf("not ");
-	printf("in use; max_pop %d; max_genotypes %d\n", max_pop, max_genotypes);
-
+	if(verbatim){
+		printf("dim_grid %d, max_demes %d, num_demes = %d, init_diameter = %d\n", dim_grid, max_demes, *num_demes, init_diameter);
+		printf("clone bintrees ");
+		if(!use_clone_bintrees) printf("not ");
+		printf("in use; max_pop %d; max_genotypes %d\n", max_pop, max_genotypes);
+	}
 	// warn if dim_grid is too large for gnuplot to create images:
 	if(write_grid && dim_grid > max_grid_for_output) {
 		printf("Warning: grid size too large for graphical output; grids won't be plotted.\n");
@@ -419,8 +421,10 @@ void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix
 	if(matrix_max > 0) for(i=0; i<matrix_max; i++) for(j=0; j<matrix_max; j++) driver_matrix[i][j] = -99; // means that these entries of the driver matrix are not yet used
 	driver_matrix[0][0] = 0; // driver matrix comprises one entry, which is zero (the distance from the first genotype to itself)
 
-	printf("Initialised\n");
-	printf("################################################################\n");
+	if(verbatim){
+		printf("Initialised\n");
+		printf("################################################################\n");
+	}
 }
 
 /////////////////////// simulation:
@@ -914,7 +918,7 @@ void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int 
 	increment_or_decrement_deme(1, parent_deme_num, *num_cells, num_demes, num_empty_demes);
 
 	// choose numbers of mutations of each type:
-	choose_number_mutations(new_passengers, new_mig_mutations, new_birth_mutations, new_s1, new_s2, new_s3, new_mutations, idum, &parent_clone);
+	choose_number_mutations(new_passengers, new_mig_mutations, new_birth_mutations, new_s1, new_s2, new_s3, new_mutations, idum, &parent_clone, gens_elapsed);
 
 	// if no new mutations then simply increment parent clone, genotype, and driver genotype populations:
 	if(!(new_mutations[0]) && !(new_mutations[1])) {
@@ -1135,7 +1139,7 @@ void deme_fission(int *event_counter, int origin_deme_num, long *idum, int *num_
 
 // choose numbers of mutations of each type (passenger, birth rate, migration rate):
 void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *new_birth_mutations, int *new_s1,  int *new_s2, int *new_s3, int *new_mutations, long *idum,
-	int *parent_clone)
+	int *parent_clone, float gens_elapsed)
 {
 	int i;
 
@@ -1147,13 +1151,20 @@ void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *n
 		// printf("(debugging) We are in function choose_number_mutations\t\tnew_birth_mutations=%d\tnew_passengers=%d\tnew_s1=%d\tnew_s2=%d\tnew_s3=%d\n", new_birth_mutations[i], new_passengers[i], new_s1[i], new_s2[i], new_s3[i]);  // mine
 		// make signatures from 3 only start at a given moment
 		//if(parent_clone == 'something!')
-		if(*parent_clone == 5){
-			printf("(debugging) The parent clone is %d\n", *parent_clone);
-			printf("(debugging) Current clone %d\n", *parent_clone);
-			new_s3[i] = poisson(idum, mu_s3); // s3 mutations
+		printf("(debugging) The number of generations elapsed is %f\n", gens_elapsed);
+		//if(*parent_clone == 7){
+		if(gens_elapsed > 6){
+			//new_s3[i] = 20; 
+			new_s3[i] = 2; //poisson(idum, mu_s3); // s3 mutations
+			printf("(debugging) Number of new mutations: %d\n", new_s3[i]);
 		}
 		else{
 			new_s3[i] = 0; // s3 mutations
+		}
+		if(new_s3[i] > 0) {
+			printf("(debugging) The parent clone is %d\n", *parent_clone);
+			printf("(debugging) Current clone %d\n", *parent_clone);
+			printf("(debugging) Number of new mutations: %d\n", new_s3[i]);
 		}
 		new_mig_mutations[i] = poisson(idum, mu_driver_migration); // migration rate mutations
 		new_mutations[i] = new_birth_mutations[i] + new_passengers[i] + new_mig_mutations[i] + new_s1[i] + new_s2[i] + new_s3[i];
@@ -1651,10 +1662,11 @@ void add_or_remove_normal_cell(int change, int deme_index, int num_cells, int *e
 // assign memory:
 void assign_memory()
 {
-	printf("max_clones %d; max_genotypes %d; max_driver_genotypes %d; max_demes %d\n", max_clones, max_genotypes, max_driver_genotypes, max_demes);
-	printf("dim_grid %d; matrix_max %d; max_distinct_allele_freqs %d\n", dim_grid, matrix_max, max_distinct_allele_freqs);
-	printf("max_clones_per_deme %d; max_bintree_clone_elements_per_deme %d\n", max_clones_per_deme, max_bintree_clone_elements_per_deme);
-	
+	if(verbatim){
+		printf("max_clones %d; max_genotypes %d; max_driver_genotypes %d; max_demes %d\n", max_clones, max_genotypes, max_driver_genotypes, max_demes);
+		printf("dim_grid %d; matrix_max %d; max_distinct_allele_freqs %d\n", dim_grid, matrix_max, max_distinct_allele_freqs);
+		printf("max_clones_per_deme %d; max_bintree_clone_elements_per_deme %d\n", max_clones_per_deme, max_bintree_clone_elements_per_deme);
+	}	
 	// two-dim arrays:
 	mallocArray_int(&clone_ints, NUM_CLONE_INT_PROPS, max_clones);
 	mallocArray_int(&genotype_ints, NUM_GENOTYPE_INT_PROPS, max_genotypes); // had to be changed: NUM_GENOTYPE_INT_PROPS from 8 to 11 (8+3)
@@ -2065,21 +2077,29 @@ void end_of_loop_output(int num_cells, float gens_elapsed, long t1)
 {
 	printf("\n");
 	if((long)time(NULL)-t1 >= max_time) {
-		printf("Reached time limit\n");
+		if(verbatim){
+			printf("Reached time limit\n");
+		}
 		fprintf(error_log, "Reached time limit\n");
 		exit_code += 2;
 	}
 	if(num_cells >= max_pop) {
-		printf("Reached max pop (%d cells)\n", num_cells);
+		if(verbatim){
+			printf("Reached max pop (%d cells)\n", num_cells);
+		}
 		fprintf(error_log, "Reached max pop (%d cells)\n", num_cells);
 	}
 	if(num_cells <= 0) {
-		printf("No more cells\n");
+		if(verbatim){
+			printf("No more cells\n");
+		}
 		fprintf(error_log, "No more cells\n");
 		exit_code += 4;
 	}
 	if(gens_elapsed >= max_generations) {
-		printf("Reached max generations (%f >= %d)\n", gens_elapsed, max_generations);
+		if(verbatim){
+			printf("Reached max generations (%f >= %d)\n", gens_elapsed, max_generations);
+		}
 		fprintf(error_log, "Reached max generations\n");
 	}
 	printf("\n");

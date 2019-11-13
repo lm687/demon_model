@@ -68,14 +68,13 @@
 #define NUM_S1_MUTATIONS 8 // number of mutations from signature 1
 #define NUM_S2_MUTATIONS 9 // number of mutations from signature 2
 #define NUM_S3_MUTATIONS 10 // number of mutations from signature 3
-
 #define NUM_GENOTYPE_INT_PROPS 11 // had to be changed from 8 to 11
 //
 #define BIRTH_RATE 0 // birth rate conferred by the genotype
 #define MIGRATION_RATE 1 // migration rate conferred by the genotype
 #define ORIGIN_TIME 2 // generation at which genotype originated
 
-#define NUM_GENOTYPE_FLOAT_PROPS 6 // I've changed this from 3 to 6 even though I am not sure
+#define NUM_GENOTYPE_FLOAT_PROPS 3 // I've changed this from 3 to 6 even though I am not sure
 
 ///// genotype relatives:
 #define PARENT_INDEX 0
@@ -154,7 +153,7 @@ void deme_fission(int *event_counter, int origin_deme_num, long *idum, int *num_
 	int *empty_cols, int *empty_driver_cols, int *num_extinct_genotypes, int *num_extinct_driver_genotypes, int num_matrix_cols);
 
 // genotype and driver genotype events (lower level):
-void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *new_birth_mutations, int *new_s1_mutations, int *new_s2_mutations, int *new_s3_mutations, int *new_mutations, long *idum, int *parent_clone);
+void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *new_birth_mutations, int *new_s1_mutations, int *new_s2_mutations, int *new_s3_mutations, int *new_mutations, long *idum, int *parent_clone, float gens_elapsed);
 int select_genotype_index(int *num_empty_cols, int *num_matrix_cols, int *empty_cols);
 void create_genotype(int **geno_or_driver_ints, float **geno_or_driver_floats, int *num_matrix_cols, int daughter_geno_num, int parent_geno_num, int *next_genotype_id, int daughter_driver_id, 
 	float new_birth_rate, float new_migration_rate, int new_passengers, int new_birth_mutations, int new_mig_mutations, int new_s1_mutations, int new_s2_mutations, int new_s3_mutations, float gens_elapsed);
