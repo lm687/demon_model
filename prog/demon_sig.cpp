@@ -319,6 +319,7 @@ void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix
 		if(!use_clone_bintrees) printf("not ");
 		printf("in use; max_pop %d; max_genotypes %d\n", max_pop, max_genotypes);
 	}
+
 	// warn if dim_grid is too large for gnuplot to create images:
 	if(write_grid && dim_grid > max_grid_for_output) {
 		printf("Warning: grid size too large for graphical output; grids won't be plotted.\n");
@@ -420,6 +421,7 @@ void initialise(int *num_cells, int *num_clones, int *num_demes, int *num_matrix
 	// driver matrix:
 	if(matrix_max > 0) for(i=0; i<matrix_max; i++) for(j=0; j<matrix_max; j++) driver_matrix[i][j] = -99; // means that these entries of the driver matrix are not yet used
 	driver_matrix[0][0] = 0; // driver matrix comprises one entry, which is zero (the distance from the first genotype to itself)
+
 
 	if(verbatim){
 		printf("Initialised\n");
@@ -918,6 +920,7 @@ void cell_division(int *event_counter, int *num_cells, int parent_deme_num, int 
 	increment_or_decrement_deme(1, parent_deme_num, *num_cells, num_demes, num_empty_demes);
 
 	// choose numbers of mutations of each type:
+
 	choose_number_mutations(new_passengers, new_mig_mutations, new_birth_mutations, new_s1, new_s2, new_s3, new_mutations, idum, &parent_clone, gens_elapsed);
 
 	// if no new mutations then simply increment parent clone, genotype, and driver genotype populations:
@@ -1667,6 +1670,7 @@ void assign_memory()
 		printf("dim_grid %d; matrix_max %d; max_distinct_allele_freqs %d\n", dim_grid, matrix_max, max_distinct_allele_freqs);
 		printf("max_clones_per_deme %d; max_bintree_clone_elements_per_deme %d\n", max_clones_per_deme, max_bintree_clone_elements_per_deme);
 	}	
+
 	// two-dim arrays:
 	mallocArray_int(&clone_ints, NUM_CLONE_INT_PROPS, max_clones);
 	mallocArray_int(&genotype_ints, NUM_GENOTYPE_INT_PROPS, max_genotypes); // had to be changed: NUM_GENOTYPE_INT_PROPS from 8 to 11 (8+3)
