@@ -1,3 +1,12 @@
+# Changes (L Morrill, 2019)
+## Implemented
+- Driver, passengers and migration mutations are sampled from the multinomial using their normalised frequencies and a total number of mutations which is the sum of the mutations attributable to signatures
+
+## To do
+- python wraper to include any arbitrary number of signatures
+- make the differential mu per signature more complex, e.g. by inputting a matrix with mu for each generation, or a function of the generations
+
+
 # demon
 Demon (deme-based oncology model) is a flexible framework for modelling intra-tumour population genetics with varied spatial structures and modes of cell dispersal.
 
