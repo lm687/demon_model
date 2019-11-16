@@ -1150,7 +1150,7 @@ void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *n
 {
 	int i;
 
-	float new_mutations_total=0;
+	int new_mutations_total=0;
 	float weights [3] = {0,0,0};
 	std::vector< int> new_mutations_multinom(3);
 
@@ -1162,7 +1162,6 @@ void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *n
 		// printf("(debugging) The number of generations elapsed is %f\n", gens_elapsed);
 		//if(*parent_clone == 7){
 		if(gens_elapsed > 2){
-			printf("Here!\n");
 			new_s3[i] = poisson(idum, mu_s3); // s3 mutations
 			// printf("(debugging) Number of new mutations: %d\n", new_s3[i]);
 		}
@@ -1178,42 +1177,75 @@ void choose_number_mutations(int *new_passengers, int *new_mig_mutations, int *n
 		new_mutations_total = new_s1[i] + new_s2[i] + new_s3[i];
 		//
 		// printf("\n(work on progress) Signature mutations: %d\t%d\t%d\n", new_s1[i], new_s2[i], new_s3[i]);
-		// printf("(work on progress) Mu of mutations: %f\t%f\t%f\n", mu_driver_birth, mu_passenger, mu_driver_migration);
+		printf("(work on progress) Mu of mutations: %f\t%f\t%f\n", mu_driver_birth, mu_passenger, mu_driver_migration);
 		// printf("(work on progress) The total mu is %f\n", mu_driver_birth+mu_passenger+mu_driver_migration);
 		//
+
 		weights[0] = mu_driver_birth / (mu_driver_birth+mu_passenger+mu_driver_migration);
 		weights[1] = mu_passenger / (mu_passenger+mu_driver_migration);
 		weights[2] = mu_driver_migration / (mu_passenger+mu_driver_migration);
+		printf("Weights (orig):\t");
+		for(int ct=0; ct<3; ct++){
+			printf("%f\t", weights[ct]);
+		}
 
-		// // given the total number of mutations attributable to each signature, allocate them to driver, passenger or migration mutations
-		// // by sampling from the multinomial
-		// // gsl_ran_multinomial is an option, using another below
-		// // std::discrete_distribution<> dist(weights.begin(), weights.end());
-		// //
-		// // std::random_device rd;
-    // // std::mt19937 gen(rd());
-		// // std::map<int, int> m;
-    // // for(int n=0; n<new_mutations[i]; ++n) {
-    // //     ++m[dist(gen)/3];
-    // // }
-    // // for(auto p : m) {
-    // //     std::cout << p.first*3 << " - "<<p.first*3+2 << " generated " << p.second << " times\n";
-    // // }
-		//
-		// printf("(work on progress) Weights:\t");
-		// for(i=0; i<3; i++){ printf("%f\t", weights[i]);}
+		// if using multinomial, re-scale to a large number an turn into int
+		// long weights2[3]; 
+		// for(int ct=0; ct<3; ct++){
+		// 	weights2_[ct] = 0+round(weights[ct]*100000000);
+		// }
+		// printf("\nWeights (rescaled):\t");
+		// for(int ct=0; ct<3; ct++){
+		// 	printf("%ld\t", weights2[ct]);
+		// }
 		// printf("\n");
-		//
-		// // that's no good because there are never any mutations of low weight but I keep it for now since I need to debug it anyway
-		new_mutations_multinom[0] = 0+round( weights[0]*new_mutations_total);
-		new_mutations_multinom[1] = 0+round( weights[1]*(new_mutations_total-new_mutations_multinom[0]));
-		new_mutations_multinom[2] = new_mutations_total-new_mutations_multinom[0]-new_mutations_multinom[1];
+		// long weights2_driver, weights2_pass, weights2_mig;
+		// weights2_driver = 0+round(weights[0]*10000000000);
+		// weights2_pass = 0+round(weights[1]*10000000000);
+		// weights2_mig = 0+round(weights[2]*10000000000);
+
+		std::ios_base::fmtflags f( std::cout.flags() );
+	    std::random_device rd;
+	    std::mt19937 gen(rd());
+	    std::discrete_distribution<> d({weights[0], weights[1], weights[2]});
+	    // std::discrete_distribution<> d({weights2_driver, weights2_pass, weights2_mig});
+	    std::map<int, long> m;
+	    for(int n=0; n<new_mutations_total; ++n) {
+	        ++m[d(gen)];
+	    }
+        int counts[3] = {0,0,0};
+	    printf("\nCount prior to drawing from multinomial:\n");
+		for(int ct=0; ct<3; ct++){
+			printf("%d\t", counts[ct]);
+		}
+		printf("\n");
+		for(auto p : m) {
+		    std::cout << p.first << " generated " << p.second << " times\n";
+		}
+	    for(auto p : m) {
+	    	counts[p.first] = p.second;
+	    }
+	    printf("The total number of new mutations is %d, which have been allocated as\n", new_mutations_total);
+		for(int ct=0; ct<3; ct++){
+			printf("%d\t", counts[ct]);
+		}
+		printf("\n");
+		std::cout.flags( f );
+
+
+		new_mutations_multinom[0] = 0+counts[0];
+		new_mutations_multinom[1] = 0+counts[1];
+		new_mutations_multinom[2] = 0+counts[2];
+
+		// new_mutations_multinom[0] = 0+round( weights[0]*new_mutations_total);
+		// new_mutations_multinom[1] = 0+round( weights[1]*(new_mutations_total-new_mutations_multinom[0]));
+		// new_mutations_multinom[2] = 0+new_mutations_total-new_mutations_multinom[0]-new_mutations_multinom[1];
 
 		new_birth_mutations[i] = new_mutations_multinom[0];  // driver mutations
 		new_passengers[i] = new_mutations_multinom[1];  // passenger mutations
 		new_mig_mutations[i] = new_mutations_multinom[2]; // migration rate mutations
 
-		// printf("(work on progress) New mutations=%d\tDrivers=%d\tPassengers=%d\tMigration=%d\n", new_mutations[i], new_birth_mutations[i], new_passengers[i], new_mig_mutations[i]);
+		printf("(work on progress) New mutations=%d\tDrivers=%d\tPassengers=%d\tMigration=%d\n", new_mutations[i], new_birth_mutations[i], new_passengers[i], new_mig_mutations[i]);
 		new_mutations[i] = new_birth_mutations[i] + new_passengers[i] + new_mig_mutations[i];
 	}
 }

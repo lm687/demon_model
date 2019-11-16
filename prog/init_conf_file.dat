@@ -13,10 +13,10 @@ parameters
     }
     mutation_rates
     {
-        mu_driver_birth 1e-05
+        mu_driver_birth 1e-02
         mu_passenger 1.1
-        mu_s1 0.8
-        mu_s2 0.8
+        mu_s1 1.8
+        mu_s2 1.8
         mu_s3 1.4
         mu_driver_migration 0
         passenger_pop_threshold -1
@@ -37,8 +37,8 @@ parameters
         matrix_max -1
         max_pop 1000000
         max_time 86400
-        max_generations 3
-        seed 107
+        max_generations 20
+        seed 201
         write_grid 0
         write_clones_file 1
         write_demes_file 0
